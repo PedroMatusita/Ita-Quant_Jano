@@ -4,6 +4,15 @@ import pandas as pd
 import yfinance as yf
 from openai import OpenAI
 from dotenv import load_dotenv
+import statsmodels.api as sm
+from statsmodels.tsa.stattools import adfuller
+
+# -------------------------------
+
+# Usar LLM para sugerir par de ações para Pair Trading
+
+# -------------------------------
+
 
 # --- Configuração de Segurança ---
 load_dotenv() 
@@ -59,43 +68,7 @@ def buscar_par_com_llm():
     except Exception as e:
         print(f"Erro ao contatar a API da OpenAI: {e}")
         return None
-
-def validar_par_estatisticamente(ticker1, ticker2, periodo="5y"):
-    """
-    Pega os dois tickers, baixa os dados históricos e calcula a 
-    correlação dos preços de fechamento.
-    """
-    print(f"Validando estatisticamente o par: {ticker1} vs {ticker2}")
     
-    try:
-        # Baixa os dados históricos dos dois tickers de uma vez
-        dados = yf.download([ticker1, ticker2], period=periodo)
-        
-        # Pega apenas os preços de fechamento
-        fechamento = dados['Close'].dropna()
-        
-        if fechamento.empty:
-            print("Não foi possível obter dados históricos para o par.")
-            return
-
-        # Calcula a correlação
-        # .corr() em um DataFrame calcula a matriz de correlação
-        correlacao = fechamento.corr().iloc[0, 1]
-        
-        print("\n--- Resultado da Validação ---")
-        print(f"Período de análise: {periodo}")
-        print(f"Correlação de Fechamento ({ticker1} vs {ticker2}): {correlacao:.4f}")
-        
-        if correlacao > 0.8:
-            print("Resultado: ALTA CORRELAÇÃO. O par parece promissor para análise.")
-        elif correlacao > 0.5:
-            print("Resultado: CORRELAÇÃO MODERADA. Analisar com cautela.")
-        else:
-            print("Resultado: BAIXA CORRELAÇÃO. A sugestão do LLM pode não ser boa.")
-
-    except Exception as e:
-        print(f"Erro ao baixar ou processar dados do yfinance: {e}")
-
 
 # --- Função Principal ---
 if __name__ == "__main__":
@@ -109,7 +82,5 @@ if __name__ == "__main__":
         print(f"Setor: {sugestao_llm.get('setor', 'N/A')}")
         print(f"Justificativa: {sugestao_llm.get('justificativa', 'N/A')}\n")
         
-        # Agora, a face "quant" do Jano entra em ação:
-        validar_par_estatisticamente(ticker1, ticker2)
     else:
         print("Não foi possível obter uma sugestão de par válida da LLM.")
