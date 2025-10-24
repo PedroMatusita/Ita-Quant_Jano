@@ -26,8 +26,6 @@ def buscar_par_com_llm():
     """
     print("Conectando ao assistente LLM para buscar sugestão de par...")
     
-    # Este prompt é crucial. 
-    # Pedimos explicitamente um formato JSON para facilitar o parsing.
     prompt_sistema = """
     Você é um analista financeiro sênior especializado em estratégias 
     market-neutral na B3 (bolsa brasileira).
