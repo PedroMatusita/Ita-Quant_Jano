@@ -1,11 +1,6 @@
-import os
 import json
-import pandas as pd
-import yfinance as yf
-from openai import OpenAI
+from google import genai
 from dotenv import load_dotenv
-import statsmodels.api as sm
-from statsmodels.tsa.stattools import adfuller
 
 # -------------------------------
 
@@ -16,61 +11,55 @@ from statsmodels.tsa.stattools import adfuller
 
 # --- Configuração de Segurança ---
 load_dotenv() 
-client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
+client = genai.Client()
 
 
-def buscar_par_com_llm():
+def buscar_par_com_llm_gemini(chat, rerun: bool):
     """
-    Envia um prompt para a LLM para sugerir um par de ações
-    para pair trading.
+    Envia um prompt para a LLM (Gemini) para sugerir um par de ações
+    para pair trading na B3, com saída no formato JSON.
+
+    Args:
+        client: Uma instância do cliente 'genai.Client'.
     """
-    print("Conectando ao assistente LLM para buscar sugestão de par...")
-    
-    prompt_sistema = """
-    Você é um analista financeiro sênior especializado em estratégias 
-    market-neutral na B3 (bolsa brasileira).
-    """
-    
-    prompt_usuario = """
-    Sugira um par de ações brasileiras (B3) que sejam historicamente 
-    correlacionadas e pertençam ao mesmo setor, ideais para 
-    uma estratégia de pair trading.
-    
-    Por favor, forneça sua resposta APENAS em formato JSON, 
-    com os dois tickers (incluindo o sufixo .SA).
-    
-    Exemplo de formato:
-    {
-      "par": ["TICKER1.SA", "TICKER2.SA"],
-      "setor": "Nome do Setor",
-      "justificativa": "Uma breve explicação."
-    }
-    """
+    print("----------------------------------------------------------------------")
+    print("Conectando ao assistente LLM (Gemini) para buscar sugestão de par...")
+
+    # A API do Gemini usa a 'configuração do sistema' e o 'schema de resposta'
+
+    if (rerun is False):
+        # 3. Prompt do Usuário
+        prompt_usuario = """
+        Sugira um par de ações brasileiras (B3) que sejam historicamente
+        correlacionadas e pertençam ao mesmo setor, ideais para
+        uma estratégia de pair trading.
+        """
+    else:
+        prompt_usuario = """
+        As ações sugeridas anteriormente não são COINTEGRADAS. 
+        Sugira um novo par de ações que sejam historicamente
+        correlacionadas e pertençam ao mesmo setor, ideais para
+        uma estratégia de pair trading.
+        """
 
     try:
-        response = client.chat.completions.create(
-            model="gpt-3.5-turbo",
-            messages=[
-                {"role": "system", "content": prompt_sistema},
-                {"role": "user", "content": prompt_usuario}
-            ],
-            response_format={"type": "json_object"}
-        )
-        
-        # Extrai e converte a resposta string-JSON em um dicionário Python
-        output_text = response.choices[0].message.content
+        response = chat.send_message(prompt_usuario)
+
+        # A resposta (response.text) já é uma string JSON válida,
+        # aderindo ao schema
+        output_text = response.text
         sugestao = json.loads(output_text)
-        
+
         return sugestao
 
     except Exception as e:
-        print(f"Erro ao contatar a API da OpenAI: {e}")
+        print(f"Erro ao contatar a API do Gemini: {e}")
         return None
     
 
 # --- Função Principal ---
 if __name__ == "__main__":
-    sugestao_llm = buscar_par_com_llm()
+    sugestao_llm = buscar_par_com_llm_gemini(client)
     
     if sugestao_llm and 'par' in sugestao_llm and len(sugestao_llm['par']) == 2:
         ticker1, ticker2 = sugestao_llm['par']
