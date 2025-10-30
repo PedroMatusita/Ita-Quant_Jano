@@ -1,3 +1,4 @@
+import json
 import pandas as pd
 import yfinance as yf
 import statsmodels.api as sm
@@ -6,6 +7,7 @@ from datetime import datetime, timedelta
 from jano_pair_selector import buscar_par_com_llm_gemini
 from google import genai
 from dotenv import load_dotenv
+import numpy as np
 from google.genai import types
 
 
@@ -16,28 +18,37 @@ from google.genai import types
 # -------------------------------
 
 
-def validar_par_estatisticamente(ticker1, ticker2):
+def validar_par_estatisticamente(ticker1, ticker2, calib_end): #realiza a calibração
     """
     Verifica se o par é cointegrado e retorna o spread 
     pronto para o backtest.
+    True = par válido
+    False = par inválido
     """
+
     print(f"Analisando cointegração para {ticker1} e {ticker2}...")
 
-    startL = datetime.now() + timedelta(days = -365*5)
-    endL = datetime.now() + timedelta(days = -365)
+    #pega os últimos calib_end+1 anos
+    startL = datetime.now() + timedelta(days = -365*(calib_end+1))
+    endL = datetime.now()
+    try:
+        trainset = np.arange(0, 252*calib_end) #calibra com os primeiros calib_end anos
+        dados = yf.download([ticker1, ticker2], start=startL, end=endL)['Close'].dropna()
+        Y_train = dados[ticker1].iloc[trainset]
+        X_train = dados[ticker2].iloc[trainset]
+        
+        X_com_constante = sm.add_constant(X_train)
+        modelo = sm.OLS(Y_train, X_com_constante).fit()
+    except Exception as e:
+        print(f"Erro download dos dados do yfinance ou no fit, busque por outro par. {e}")
+        return False, None, None
     
-    dados = yf.download([ticker1, ticker2], start=startL, end=endL)['Close'].dropna()
-    Y = dados[ticker1]
-    X = dados[ticker2]
-    
-    X_com_constante = sm.add_constant(X)
-    modelo = sm.OLS(Y, X_com_constante).fit()
-    
-    beta = modelo.params[1]
+    beta = modelo.params.iloc[1]
     print(f"Hedge Ratio (Beta) encontrado: {beta:.4f}")
     
-    spread = Y - beta * X
+    spread = dados[ticker1] - beta * dados[ticker2]
     
+    #testa cointegração para o período todo de 5 anos
     teste_adf = adfuller(spread, autolag='AIC')
     p_value = teste_adf[1]
     
@@ -46,27 +57,16 @@ def validar_par_estatisticamente(ticker1, ticker2):
     if p_value < 0.05: 
         print("Resultado: O PAR É COINTEGRADO (p-value < 0.05).")
         print("Pode prosseguir para o backtest.")
-        return 1
-        # media_spread = spread.rolling(window=30).mean()
-        # desvio_spread = spread.rolling(window=30).std()
-        
-        # df_backtest = pd.DataFrame({'Spread': spread})
-        # df_backtest['ZScore'] = (spread - media_spread) / desvio_spread
-        # df_backtest.dropna(inplace=True)
+        return True, dados, beta
         
         # return df_backtest
         
     else:
         print("Resultado: O PAR NÃO É COINTEGRADO (p-value >= 0.05).")
         print("Rejeitar este par. Tente outros tickers.")
-        return None
+        return False, None, None
 
-    
-# --- Exemplo de uso ---
-if __name__ == "__main__":
-    # ticker1 = "PETR4.SA"
-    # ticker2 = "PETR3.SA"
-    
+def encontra_par_valido_com_gemini(client: genai.Client):
     # 1. Configuração do Sistema (System Instruction)
     prompt_sistema = """
     Você é um analista financeiro sênior especializado em estratégias
@@ -95,9 +95,6 @@ if __name__ == "__main__":
         required=["par", "setor", "justificativa"]
     )
 
-    # df_estrategia = validar_par_estatisticamente(ticker1, ticker2)
-    load_dotenv() 
-    client = genai.Client()
     chat = client.chats.create(
         model='gemini-2.5-flash',
         config=types.GenerateContentConfig(
@@ -108,24 +105,66 @@ if __name__ == "__main__":
             response_schema=response_schema
         )
     )
+    
     rerun = False
-
-    for i in range(10):
+    for i in range(15):
         sugestao_llm = buscar_par_com_llm_gemini(chat, rerun)
     
         if sugestao_llm and 'par' in sugestao_llm and len(sugestao_llm['par']) == 2:
             ticker1, ticker2 = sugestao_llm['par']
             print(f"\nSugestão recebida da LLM:")
             print(f"Par: {ticker1} e {ticker2}")
-            resultado = validar_par_estatisticamente(ticker1, ticker2)
-            if resultado is None:
+            calib_end = 4
+            resultado, dados, hedge = validar_par_estatisticamente(ticker1, ticker2, calib_end)
+            if resultado is False:
                 rerun = True
             else:
-                break
+                print(f"O par {ticker1} e {ticker2} é um par válido, continue para o backtesting.")
+                print(f"Hedge Ratio dos {calib_end} anos de calibração é: {hedge}")
+                return ticker1, ticker2, dados, hedge
+    # Caso não encontre em 15 tentativas, retorna nada
+    return None, None, None, None
+
+def analisar_backtest_com_llm(client: genai.Client, metrics: dict, nome_estrategia: str):
+    """
+    Usa a GenAI para escrever a conclusão do backtest,
+    como se fosse para o comitê gestor.
+    """
+    print("\n--- JANO Analyst (GenAI) analisando resultados do backtest... ---")
     
-    print("PAR COINTEGRADO - SEGUIR PARA BACKTESTING")
+    prompt_sistema = """
+    Você é um analista quantitativo sênior e cético.
+    Sua tarefa é analisar os resultados (métricas) de um backtest 
+    'out-of-sample' e escrever uma breve conclusão para um comitê 
+    gestor. Seja honesto sobre os pontos fortes e fracos.
+    """
+    
+    # Converte as métricas em texto
+    metrics_str = json.dumps(metrics, indent=2)
+    
+    prompt_usuario = f"""
+    Analise as métricas de performance da estratégia '{nome_estrategia}':
+    
+    {metrics_str}
+    
+    Escreva uma breve análise (em 3 parágrafos) respondendo:
+    1. A estratégia foi lucrativa e o retorno compensou o risco 
+       (analise o Sharpe Ratio e o Max Drawdown)?
+    2. A performance 'out-of-sample' valida a hipótese de cointegração?
+    3. Você recomendaria estudar esta estratégia mais a fundo para implementação?
+    """
+    
+    # (Lógica da chamada ao Gemini, sem JSON forçado, 
+    # pois queremos texto corrido)
+    
+    # response = client.models.generate_content(...)
+    # print("--- CONCLUSÃO DO COMITÊ (Gerada por IA) ---")
+    # print(response.text)
 
 
-    # if df_estrategia is not None:
-    #     print("\n--- Dados da Estratégia (Z-Score) ---")
-    #     print(df_estrategia.tail())
+
+# --- Exemplo de uso ---
+if __name__ == "__main__":
+    load_dotenv() 
+    client = genai.Client()
+    encontra_par_valido_com_gemini(client)
