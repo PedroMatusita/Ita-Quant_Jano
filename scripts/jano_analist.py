@@ -114,7 +114,25 @@ def encontra_par_valido_com_gemini(client: genai.Client):
             ticker1, ticker2 = sugestao_llm['par']
             print(f"\nSugestão recebida da LLM:")
             print(f"Par: {ticker1} e {ticker2}")
+
+
             calib_end = 4
+            # 'calib_end' define o número de anos usados para calibrar os parâmetros
+            # os dados retornados são referentes a calib_end+1 anos anteriores ao dia atual
+            # a calibragem é feita com dados[0, calib_end*252] (pois há 252 dias de trade num ano, desconsiderando feriados e etc)
+            #    trainset = np.arange(0, 252*calib_end)
+            #
+            # sugestão 1: como na calibração foram usados os calib_end primeiros anos, usar para teste o resto do conjunto de dados
+            #           para evitar viés de look-ahead, ou seja, para tudo usar o intervalo 'testset' de dados
+            #
+            #    testset = np.arange(trainset.shape[0], dados.shape[0])
+            #
+            #    exemplo de uso do intervalo testset para separar os dados para teste
+            #        ticker1_testset = dados[ticker1].iloc[testset]
+            #        ticker2_testset = dados[ticker2].iloc[testset]
+            # 
+            # sugestão 2: fazer um modo de backtest usando médias móveis e um usando média do conjunto todo para comparar
+            
             resultado, dados, hedge = validar_par_estatisticamente(ticker1, ticker2, calib_end)
             if resultado is False:
                 rerun = True
