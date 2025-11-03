@@ -8,4 +8,6 @@ python -m venv .venv
 pip install -r requirements.txt
 
 pip freeze > requirements.txt
+
+python scripts/jano_backtester.py
 ```

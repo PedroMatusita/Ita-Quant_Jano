@@ -32,7 +32,8 @@ def buscar_par_com_llm_gemini(chat, rerun: bool):
         prompt_usuario = """
         Sugira um par de ações brasileiras (B3) que sejam historicamente
         correlacionadas e pertençam ao mesmo setor, ideais para
-        uma estratégia de pair trading.
+        uma estratégia de pair trading. Os tickers retornados devem seguir o padrão
+        do yahoo finance.
         """
     else:
         prompt_usuario = """

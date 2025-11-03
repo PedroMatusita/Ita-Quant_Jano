@@ -117,6 +117,7 @@ def encontra_par_valido_com_gemini(client: genai.Client):
 
 
             calib_end = 4
+            calib_end_date = datetime.today() - timedelta(365*(calib_end + 1)) + timedelta(365*calib_end)
             # 'calib_end' define o número de anos usados para calibrar os parâmetros
             # os dados retornados são referentes a calib_end+1 anos anteriores ao dia atual
             # a calibragem é feita com dados[0, calib_end*252] (pois há 252 dias de trade num ano, desconsiderando feriados e etc)
@@ -139,45 +140,66 @@ def encontra_par_valido_com_gemini(client: genai.Client):
             else:
                 print(f"O par {ticker1} e {ticker2} é um par válido, continue para o backtesting.")
                 print(f"Hedge Ratio dos {calib_end} anos de calibração é: {hedge}")
-                return ticker1, ticker2, dados, hedge
+                return ticker1, ticker2, dados, hedge, calib_end_date
     # Caso não encontre em 15 tentativas, retorna nada
-    return None, None, None, None
+    return None, None, None, None, None
 
-def analisar_backtest_com_llm(client: genai.Client, metrics: dict, nome_estrategia: str):
+import json
+
+def analisar_backtest_com_llm(client: genai.Client, metrics: dict, nome_estrategia: str = "JANO Pairs Trading"):
     """
     Usa a GenAI para escrever a conclusão do backtest,
     como se fosse para o comitê gestor.
     """
     print("\n--- JANO Analyst (GenAI) analisando resultados do backtest... ---")
-    
+
     prompt_sistema = """
     Você é um analista quantitativo sênior e cético.
     Sua tarefa é analisar os resultados (métricas) de um backtest 
     'out-of-sample' e escrever uma breve conclusão para um comitê 
-    gestor. Seja honesto sobre os pontos fortes e fracos.
+    gestor. Seja objetivo e técnico.
     """
-    
-    # Converte as métricas em texto
-    metrics_str = json.dumps(metrics, indent=2)
-    
+
+    # Converte as métricas em texto legível
+    metrics_str = json.dumps(metrics, indent=2, ensure_ascii=False)
+
     prompt_usuario = f"""
     Analise as métricas de performance da estratégia '{nome_estrategia}':
-    
+
     {metrics_str}
-    
-    Escreva uma breve análise (em 3 parágrafos) respondendo:
-    1. A estratégia foi lucrativa e o retorno compensou o risco 
-       (analise o Sharpe Ratio e o Max Drawdown)?
+
+    Escreva uma análise em 3 parágrafos, respondendo:
+    1. A estratégia foi lucrativa e o retorno compensou o risco?
+       (Analise o Sharpe Ratio, Drawdown e Retorno Líquido)
     2. A performance 'out-of-sample' valida a hipótese de cointegração?
-    3. Você recomendaria estudar esta estratégia mais a fundo para implementação?
+    3. Você recomendaria aprofundar o estudo desta estratégia para implementação real?
     """
-    
-    # (Lógica da chamada ao Gemini, sem JSON forçado, 
-    # pois queremos texto corrido)
-    
-    # response = client.models.generate_content(...)
-    # print("--- CONCLUSÃO DO COMITÊ (Gerada por IA) ---")
-    # print(response.text)
+
+    # --- Chamada ao modelo Gemini ---
+    # response = client.models.generate_content(
+    #     model="gemini-2.5-flash",
+    #     contents=[prompt_sistema, prompt_usuario],
+    #     config=types.GenerateContentConfig(
+
+    #         temperature=0.4,
+    #         max_output_tokens=1000
+    #     )
+    # )
+
+    chat = client.chats.create(
+        model='gemini-2.5-flash',
+        config=types.GenerateContentConfig(
+            system_instruction=prompt_sistema,
+            # AVISO: Veja a seção de atenção sobre o JSON abaixo.
+            # Por enquanto, vamos desativar a força de JSON em um chat livre:
+            )
+    )
+
+    response = chat.send_message(prompt_usuario)
+
+    print("\n--- CONCLUSÃO DO COMITÊ (Gerada por IA) ---\n")
+    print(response.text)
+    return response.text
 
 
 
